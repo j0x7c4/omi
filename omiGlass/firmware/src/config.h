@@ -4,7 +4,7 @@
 // =============================================================================
 // BOARD CONFIGURATION - Must be defined before camera includes
 // =============================================================================
-#define CAMERA_MODEL_XIAO_ESP32S3 // Define camera model for Seeed Xiao ESP32S3
+#define CAMERA_MODEL_ESP32S3_EYE // Define camera model for ESP32-S3-EYE
 #define BOARD_HAS_PSRAM           // Enable PSRAM support
 #define CONFIG_ARDUHAL_ESP_LOG    // Enable Arduino HAL logging
 
@@ -39,7 +39,7 @@
 // Battery Monitoring - Extended intervals for power savings
 #define BATTERY_REPORT_INTERVAL_MS 90000 // 1.5 minute reporting (was 60s)
 #define BATTERY_TASK_INTERVAL_MS 20000   // 20 second internal checks (was 15s)
-#define BATTERY_ADC_PIN 2                // GPIO2 (A1) - voltage divider connection
+#define BATTERY_ADC_PIN -1               // ESP32-S3-EYE has no battery voltage divider
 
 // =============================================================================
 // CAMERA CONFIGURATION - Power optimized for 6-8 hour battery life
@@ -123,8 +123,8 @@ typedef enum {
 // MICROPHONE CONFIGURATION - I2S PDM (XIAO ESP32S3 Sense built-in mic)
 // =============================================================================
 // XIAO ESP32S3 Sense has built-in PDM microphone
-#define MIC_CLK_PIN 42  // PDM Clock pin (GPIO42)
-#define MIC_DATA_PIN 41 // PDM Data pin (GPIO41)
+#define MIC_CLK_PIN 41  // PDM Clock pin (GPIO41 on ESP32-S3-EYE)
+#define MIC_DATA_PIN 2  // PDM Data pin (GPIO2 on ESP32-S3-EYE)
 
 #define MIC_SAMPLE_RATE 16000          // 16kHz sample rate
 #define MIC_BUFFER_SAMPLES 1600        // 100ms buffer (16000 * 0.1)
@@ -193,27 +193,11 @@ typedef enum {
 // =============================================================================
 // PIN DEFINITIONS (from camera_pins.h integration)
 // =============================================================================
-#ifdef CAMERA_MODEL_XIAO_ESP32S3
-#define PWDN_GPIO_NUM -1
-#define RESET_GPIO_NUM -1
-#define XCLK_GPIO_NUM 10
-#define SIOD_GPIO_NUM 40
-#define SIOC_GPIO_NUM 39
-#define Y9_GPIO_NUM 48
-#define Y8_GPIO_NUM 11
-#define Y7_GPIO_NUM 12
-#define Y6_GPIO_NUM 14
-#define Y5_GPIO_NUM 16
-#define Y4_GPIO_NUM 18
-#define Y3_GPIO_NUM 17
-#define Y2_GPIO_NUM 15
-#define VSYNC_GPIO_NUM 38
-#define HREF_GPIO_NUM 47
-#define PCLK_GPIO_NUM 13
-
+#ifdef CAMERA_MODEL_ESP32S3_EYE
+// Camera pins defined via camera_pins.h
 // Power Button and LED Control
-#define POWER_BUTTON_PIN 1 // Custom button (GPIO1/A0) - power on/off
-#define STATUS_LED_PIN 21  // User LED (GPIO21) - status indicator
+#define POWER_BUTTON_PIN 0 // BOOT button (GPIO0) on ESP32-S3-EYE
+#define STATUS_LED_PIN 3   // Function LED (GPIO3) on ESP32-S3-EYE
 #endif
 
 // =============================================================================
