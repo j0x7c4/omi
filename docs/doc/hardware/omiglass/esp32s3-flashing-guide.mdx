@@ -1,0 +1,283 @@
+# ESP32-S3 固件烧录指南
+
+本文档记录了将 omiGlass 固件烧录到 ESP32-S3 开发板的完整流程，包括板子识别方法、环境配置、常见问题及解决方案。
+
+---
+
+## 一、识别你的开发板
+
+### 1.1 从外观识别
+
+ESP32-S3 系列有多个变体，外观特征如下：
+
+| 板子型号 | 尺寸 | 摄像头 | 屏幕 | 接口 |
+|---------|------|--------|------|------|
+| Seeed XIAO ESP32-S3 Sense | 21×17.5mm，拇指大小 | 板载 OV2640（FPC） | 无 | USB-C |
+| ESP32-S3-EYE | 约 55×55mm | 板载 OV2640 | 可插拔 LCD | USB-C |
+| ESP32-S3-DevKitC-1 | 长条形开发板 | 无 | 无 | USB-C + UART |
+
+**关键识别点：**
+- 板子上印有 `XIAO` → Seeed XIAO 系列
+- 板子上印有 `Espressif`，带摄像头和可插拔屏幕 → ESP32-S3-EYE
+- 模组上印有 `ESP32-S3-WROOM-1U` → 带外置天线接口的 WROOM 模组，需进一步确认载板型号
+
+> **注意：** `ESP32-S3-WROOM-1U` 是模组名称（金属屏蔽罩上的丝印），不是开发板型号。载板型号通常印在 PCB 其他位置。
+
+---
+
+### 1.2 用工具识别
+
+当外观无法判断时，用 esptool 读取芯片信息：
+
+```bash
+pip install esptool
+
+# Linux
+esptool --port /dev/ttyACM0 chip-id
+
+# macOS
+esptool --port /dev/tty.usbmodem* chip-id
+```
+
+输出示例（ESP32-S3 with PSRAM）：
+```
+Chip type:     ESP32-S3 (QFN56) (revision v0.2)
+Features:      Wi-Fi, BT 5 (LE), Dual Core, 240MHz, Embedded PSRAM 8MB (AP_3v3)
+Crystal:       40MHz
+Flash size:    16MB
+```
+
+查看 Flash 信息：
+```bash
+esptool --port /dev/ttyACM0 flash-id
+```
+
+---
+
+### 1.3 通过 PlatformIO 日志识别
+
+烧录时日志开头会显示识别到的板子：
+```
+PLATFORM: Espressif 32 > Espressif ESP32-S3-DevKitC-1-N8 (8 MB QD, No PSRAM)
+```
+
+若显示 `No PSRAM` 但 esptool 显示有 PSRAM，说明 `platformio.ini` 中的 `board` 配置与实际硬件不符，需要修改。
+
+---
+
+## 二、硬件连接
+
+### 2.1 接口说明
+
+部分 ESP32-S3 开发板有多个 USB 接口，用途不同：
+
+| 接口标签 | 用途 |
+|---------|------|
+| **UART** | 烧录固件、串口调试（必须用这个） |
+| **USB** | 原生 USB（USB OTG，功能不同） |
+| **IIC** | I²C 外设扩展 |
+
+**烧录时必须使用 UART 口。**
+
+### 2.2 连接验证
+
+**Linux：**
+```bash
+ls /dev/ttyACM* /dev/ttyUSB*
+```
+成功连接后会出现 `/dev/ttyACM0` 或 `/dev/ttyUSB0`。
+
+**macOS：**
+```bash
+ls /dev/tty.*
+```
+成功后出现 `/dev/tty.usbmodem*` 或 `/dev/tty.SLAB_USBtoUART`。
+
+---
+
+## 三、常见连接问题
+
+### 问题 1：系统完全无法识别设备
+
+**现象：** `ls /dev/tty.*` 插线前后无变化，`system_profiler SPUSBDataType` 输出为空。
+
+**原因与解决：**
+
+| 原因 | 解决方案 |
+|------|---------|
+| USB 线只能充电，没有数据线 | 换能传数据的线（最常见原因） |
+| 插错了接口 | 换插标有 UART 的口 |
+| 缺少 USB 转串口驱动 | 安装对应驱动（见下） |
+
+**驱动安装（按芯片型号）：**
+
+| USB 转串口芯片 | 驱动来源 |
+|--------------|---------|
+| CP2102 / CP2104 | Silicon Labs CP210x（Espressif 官方板常用） |
+| CH340 / CH341 | WCH 官网 CH34x 驱动 |
+| FTDI | FTDI 官网 |
+
+### 问题 2：Linux 权限错误
+
+**现象：**
+```
+Permission denied: '/dev/ttyACM0'
+Hint: Try to add user into dialout or uucp group.
+```
+
+**解决（永久生效）：**
+```bash
+sudo usermod -a -G dialout $USER
+# 重新登录后生效
+```
+
+**临时解决：**
+```bash
+sudo chmod 666 /dev/ttyACM0
+```
+
+---
+
+## 四、PlatformIO 环境配置
+
+### 4.1 安装
+
+```bash
+pip install platformio
+pio --version  # 验证安装
+```
+
+### 4.2 针对不同板子的 platformio.ini 配置
+
+**Seeed XIAO ESP32-S3 Sense（原始配置）：**
+```ini
+[env:seeed_xiao_esp32s3]
+platform = espressif32
+board = seeed_xiao_esp32s3
+framework = arduino
+board_build.arduino.memory_type = qio_opi
+build_flags =
+    -DCAMERA_MODEL_XIAO_ESP32S3
+    -DBOARD_HAS_PSRAM
+```
+
+**ESP32-S3-EYE：**
+```ini
+[env:esp32s3eye]
+platform = espressif32
+board = esp32-s3-devkitc-1
+framework = arduino
+board_build.arduino.memory_type = qio_opi
+build_flags =
+    -DCAMERA_MODEL_ESP32S3_EYE
+    -DBOARD_HAS_PSRAM
+```
+
+> **注意：** 若日志显示 `No PSRAM` 但硬件实际有 PSRAM，说明 board 定义选错了。需改为带 PSRAM 的变体，如 `esp32-s3-devkitc-1-n8r8`（8MB PSRAM）或 `esp32-s3-devkitc-1-n16r8`（16MB flash + 8MB PSRAM）。
+
+---
+
+## 五、各板子引脚差异
+
+### 摄像头引脚
+
+| 引脚 | XIAO ESP32-S3 | ESP32-S3-EYE |
+|------|--------------|--------------|
+| XCLK | GPIO10 | GPIO15 |
+| SIOD | GPIO40 | GPIO4 |
+| SIOC | GPIO39 | GPIO5 |
+| VSYNC | GPIO38 | GPIO6 |
+| HREF | GPIO47 | GPIO7 |
+| PCLK | GPIO13 | GPIO13 |
+| Y9~Y2 | 48,11,12,14,16,18,17,15 | 16,17,18,12,10,9,8,11 |
+
+### 麦克风引脚（PDM）
+
+| 引脚 | XIAO ESP32-S3 | ESP32-S3-EYE |
+|------|--------------|--------------|
+| CLK | GPIO42 | GPIO41 |
+| DATA | GPIO41 | GPIO2 |
+
+### 其他引脚
+
+| 功能 | XIAO ESP32-S3 | ESP32-S3-EYE |
+|------|--------------|--------------|
+| 电源按钮 | GPIO1 | GPIO0（BOOT 键） |
+| 状态 LED | GPIO21 | GPIO3 |
+| 电池 ADC | GPIO2 | 无（需禁用，设为 -1） |
+
+---
+
+## 六、依赖库网络问题（中国大陆）
+
+omiGlass 固件依赖从 GitHub 下载的库：
+```
+https://github.com/pschatzmann/arduino-libopus.git
+```
+
+在 GitHub 访问不稳定的环境下，可能出现：
+```
+gnutls_handshake() failed: The TLS connection was non-properly terminated.
+```
+
+**解决方案一：设置 GitHub 镜像代理**
+```bash
+git config --global url."https://mirror.ghproxy.com/https://github.com/".insteadOf "https://github.com/"
+```
+
+**解决方案二：手动下载后本地安装**
+
+在能访问 GitHub 的机器上：
+```bash
+git clone --depth 1 https://github.com/pschatzmann/arduino-libopus.git
+scp -r arduino-libopus user@ubuntu-ip:~/
+```
+
+在 Ubuntu 上：
+```bash
+mkdir -p ~/.platformio/lib
+cp -r ~/arduino-libopus ~/.platformio/lib/arduino-libopus
+```
+
+修改 `platformio.ini` 改用本地路径：
+```ini
+lib_deps =
+    h2zero/NimBLE-Arduino @ ^1.4.1
+    espressif/esp32-camera @ ^2.0.0
+    file:///home/jie/.platformio/lib/arduino-libopus
+```
+
+---
+
+## 七、烧录命令
+
+```bash
+cd omiGlass/firmware
+
+# 授权串口（Linux）
+sudo chmod 666 /dev/ttyACM0
+
+# 编译 + 烧录
+pio run -e esp32s3eye --target upload --upload-port /dev/ttyACM0
+
+# 查看串口日志（验证是否成功）
+pio device monitor --port /dev/ttyACM0 --baud 115200
+```
+
+### 验证烧录结果
+
+| 串口日志 | 含义 |
+|---------|------|
+| `Camera init success` | 摄像头引脚配置正确 |
+| `Microphone started successfully` | 麦克风引脚配置正确 |
+| `Camera init failed` | 摄像头引脚不匹配，需重新确认 |
+| `Failed to install I2S driver` | 麦克风引脚不匹配 |
+
+---
+
+## 八、待确认事项
+
+- [ ] 确认板子型号（当前判断为 ESP32-S3-DevKitC-1，但带摄像头和可插拔屏幕，疑似 ESP32-S3-EYE 或自定义板）
+- [ ] 确认摄像头模块型号及连接引脚（FPC 排线 / 杜邦线）
+- [ ] 确认摄像头模块上的丝印（如 OV2640）
+- [ ] 根据实际 PSRAM 配置修正 board 定义（当前硬件有 8MB PSRAM，但 PlatformIO 显示 No PSRAM）
