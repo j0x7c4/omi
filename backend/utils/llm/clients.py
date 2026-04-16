@@ -19,8 +19,25 @@ ANTHROPIC_AGENT_COMPLEX_MODEL = "claude-sonnet-4-6"
 # Get the usage tracking callback
 _usage_callback = get_usage_callback()
 
+# Local omlx model (OpenAI-compatible, e.g. gemma running via omlx)
+_OMLX_API_BASE = os.environ.get('OMLX_API_BASE', 'http://localhost:8000')
+_OMLX_MODEL = os.environ.get('OMLX_MODEL', 'gemma-4-26b-a4b-it-4bit')
+_OMLX_API_KEY = os.environ.get('OMLX_API_KEY', 'omlx')
+_USE_LOCAL_LLM = os.environ.get('USE_LOCAL_LLM', 'false').lower() == 'true'
+
+llm_local = ChatOpenAI(
+    model=_OMLX_MODEL,
+    base_url=f'{_OMLX_API_BASE}/v1',
+    api_key=_OMLX_API_KEY,
+    max_tokens=512,
+    temperature=0.7,
+    top_p=0.9,
+    timeout=120,
+    callbacks=[_usage_callback],
+)
+
 # Base models for general use
-llm_mini = ChatOpenAI(model='gpt-4.1-mini', callbacks=[_usage_callback])
+llm_mini = llm_local if _USE_LOCAL_LLM else ChatOpenAI(model='gpt-4.1-mini', callbacks=[_usage_callback])
 llm_mini_stream = ChatOpenAI(
     model='gpt-4.1-mini',
     streaming=True,
