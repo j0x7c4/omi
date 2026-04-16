@@ -35,6 +35,8 @@ if os.environ.get('SERVICE_ACCOUNT_JSON'):
     service_account_info = json.loads(os.environ["SERVICE_ACCOUNT_JSON"])
     credentials = service_account.Credentials.from_service_account_info(service_account_info)
     storage_client = storage.Client(credentials=credentials)
+elif os.environ.get('LOCAL_DEV_NO_GCS') == 'true':
+    storage_client = None  # GCS disabled for local development
 else:
     storage_client = storage.Client()
 

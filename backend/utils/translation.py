@@ -119,8 +119,11 @@ _non_lexical_utterances_pattern = re.compile(
     r'\b(' + '|'.join(re.escape(word) for word in _non_lexical_utterances) + r')\b', re.IGNORECASE
 )
 
-# Initialize the translation client globally
-_client = translate_v3.TranslationServiceClient()
+# Initialize the translation client globally (skip if no credentials for local dev)
+try:
+    _client = translate_v3.TranslationServiceClient()
+except Exception:
+    _client = None
 _parent = f"projects/{PROJECT_ID}/locations/global"
 _mime_type = "text/plain"
 
