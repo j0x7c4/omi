@@ -1,6 +1,6 @@
-# ESP32-S3 固件烧录指南
+# ESP32-S3 固件烧录与调试指南
 
-本文档记录了将 omiGlass 固件烧录到 ESP32-S3 开发板的完整流程，包括板子识别方法、环境配置、常见问题及解决方案。
+本文档记录了将 omiGlass 固件烧录到 ESP32-S3 开发板的完整流程，包括板子识别、环境配置、本地 backend 启动、摄像头画面获取及常见问题解决方案。
 
 ---
 
@@ -21,7 +21,7 @@ ESP32-S3 系列有多个变体，外观特征如下：
 - 板子上印有 `Espressif`，带摄像头和可插拔屏幕 → ESP32-S3-EYE
 - 模组上印有 `ESP32-S3-WROOM-1U` → 带外置天线接口的 WROOM 模组，需进一步确认载板型号
 
-> **注意：** `ESP32-S3-WROOM-1U` 是模组名称（金属屏蔽罩上的丝印），不是开发板型号。载板型号通常印在 PCB 其他位置。
+> **注意：** `ESP32-S3-WROOM-1U` 是模组名称（金属屏蔽罩上的丝印），不是开发板型号。载板型号通常印在 PCB 其他位置。若板子装在外壳内看不到，可以通过工具识别（见 1.2）。
 
 ---
 
@@ -149,7 +149,7 @@ pio --version  # 验证安装
 
 ### 4.2 针对不同板子的 platformio.ini 配置
 
-**Seeed XIAO ESP32-S3 Sense（原始配置）：**
+**Seeed XIAO ESP32-S3 Sense：**
 ```ini
 [env:seeed_xiao_esp32s3]
 platform = espressif32
@@ -173,7 +173,9 @@ build_flags =
     -DBOARD_HAS_PSRAM
 ```
 
-> **注意：** 若日志显示 `No PSRAM` 但硬件实际有 PSRAM，说明 board 定义选错了。需改为带 PSRAM 的变体，如 `esp32-s3-devkitc-1-n8r8`（8MB PSRAM）或 `esp32-s3-devkitc-1-n16r8`（16MB flash + 8MB PSRAM）。
+> **注意：** `config.h` 中不应硬编码 `CAMERA_MODEL_*`，应由 `platformio.ini` 的 build flag 控制。这样同一份代码可以通过切换环境支持多种板子。
+
+> 若日志显示 `No PSRAM` 但硬件实际有 PSRAM，需改为带 PSRAM 的变体，如 `esp32-s3-devkitc-1-n8r8`（8MB PSRAM）或 `esp32-s3-devkitc-1-n16r8`（16MB flash + 8MB PSRAM）。
 
 ---
 
@@ -251,33 +253,198 @@ lib_deps =
 
 ## 七、烧录命令
 
+**macOS（Seeed XIAO）：**
 ```bash
 cd omiGlass/firmware
+python3 -m platformio run -e seeed_xiao_esp32s3 --target upload --upload-port /dev/tty.usbmodem101
+```
 
-# 授权串口（Linux）
+**Linux（ESP32-S3-EYE）：**
+```bash
+cd omiGlass/firmware
 sudo chmod 666 /dev/ttyACM0
-
-# 编译 + 烧录
 pio run -e esp32s3eye --target upload --upload-port /dev/ttyACM0
-
-# 查看串口日志（验证是否成功）
-pio device monitor --port /dev/ttyACM0 --baud 115200
 ```
 
 ### 验证烧录结果
 
+查看串口日志：
+```bash
+# macOS
+python3 -c "
+import serial, time
+s = serial.Serial('/dev/tty.usbmodem101', 115200, timeout=2)
+for _ in range(30):
+    line = s.readline()
+    if line: print(line.decode('utf-8', errors='replace'), end='')
+s.close()
+"
+
+# Linux
+pio device monitor --port /dev/ttyACM0 --baud 115200
+```
+
 | 串口日志 | 含义 |
 |---------|------|
-| `Camera init success` | 摄像头引脚配置正确 |
+| `BLE initialized and advertising started` | BLE 正常，设备开始广播 |
+| `Camera initialized successfully` | 摄像头引脚配置正确 |
 | `Microphone started successfully` | 麦克风引脚配置正确 |
 | `Camera init failed` | 摄像头引脚不匹配，需重新确认 |
 | `Failed to install I2S driver` | 麦克风引脚不匹配 |
+| `Battery: 2.50V (0%)` | 正常（无外接电池时 ADC 悬空，不影响功能） |
 
 ---
 
-## 八、待确认事项
+## 八、本地 Backend 启动
 
-- [ ] 确认板子型号（当前判断为 ESP32-S3-DevKitC-1，但带摄像头和可插拔屏幕，疑似 ESP32-S3-EYE 或自定义板）
-- [ ] 确认摄像头模块型号及连接引脚（FPC 排线 / 杜邦线）
-- [ ] 确认摄像头模块上的丝印（如 OV2640）
-- [ ] 根据实际 PSRAM 配置修正 board 定义（当前硬件有 8MB PSRAM，但 PlatformIO 显示 No PSRAM）
+### 8.1 创建 Python 环境
+
+```bash
+conda create -n omi python=3.11 -y
+conda activate omi
+pip install -r backend/requirements.txt
+```
+
+### 8.2 pyogg 补丁（macOS）
+
+安装的 pyogg 版本有 bug，需手动修补：
+
+```python
+# 文件：~/.conda/envs/omi/lib/python3.11/site-packages/pyogg/opus.py
+# 在 opus_int32_p = POINTER(opus_int32) 下方添加：
+c_int_p = POINTER(c_int)
+c_uchar = c_ubyte
+c_uchar_p = POINTER(c_ubyte)
+c_float_p = POINTER(c_float)
+```
+
+### 8.3 启动 Firestore 本地模拟器
+
+backend 依赖 Firestore，本地开发使用模拟器代替：
+
+**前提：需要 Java 21+**
+```bash
+brew install openjdk@21
+export PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH"
+```
+
+**安装 Firebase CLI 并启动：**
+```bash
+npm install -g firebase-tools
+cd backend
+firebase emulators:start --only firestore --project local-dev
+```
+
+模拟器启动后 `curl http://localhost:9090/` 返回 `Ok`。
+
+### 8.4 配置 .env
+
+```bash
+# Opus 动态库路径（macOS）
+DYLD_LIBRARY_PATH=/opt/homebrew/lib
+
+# 使用本地 omlx 模型替代 OpenAI
+USE_LOCAL_LLM=true
+OMLX_API_BASE=http://localhost:8000
+OMLX_MODEL=gemma-4-26b-a4b-it-4bit
+OMLX_API_KEY=omlx
+OPENAI_API_KEY=omlx
+
+# 加密密钥（必填）
+ENCRYPTION_SECRET='omi_ZwB2ZNqB2HHpMK6wStk7sTpavJiPTFg7gXUHnc4tFABPU6pZ2c2DKgehtfgi4RZv'
+
+# 本地开发鉴权绕过
+ADMIN_KEY=localdev
+
+# Firestore 本地模拟器
+FIRESTORE_EMULATOR_HOST=127.0.0.1:9090
+GCLOUD_PROJECT=local-dev
+
+# 禁用 GCS（本地无凭证）
+LOCAL_DEV_NO_GCS=true
+
+# Typesense（填假值避免启动报错，搜索功能不可用）
+TYPESENSE_HOST=localhost
+TYPESENSE_HOST_PORT=8108
+TYPESENSE_API_KEY=localdev
+```
+
+### 8.5 启动 Backend
+
+```bash
+cd backend
+conda run -n omi bash -c "export \$(grep -v '^#' .env | xargs) && DYLD_LIBRARY_PATH=/opt/homebrew/lib uvicorn main:app --host 0.0.0.0 --port 8080"
+```
+
+启动成功后：
+- API：`http://localhost:8080`
+- 文档：`http://localhost:8080/docs`
+
+### 8.6 本地模型集成（omlx + gemma）
+
+`utils/llm/clients.py` 中通过环境变量切换：
+
+```python
+# 当 USE_LOCAL_LLM=true 时，llm_mini 自动指向本地 omlx
+llm_local = ChatOpenAI(
+    model='gemma-4-26b-a4b-it-4bit',
+    base_url='http://localhost:8000/v1',
+    api_key='omlx',
+    max_tokens=512,
+    temperature=0.7,
+    top_p=0.9,
+    timeout=120,
+)
+```
+
+---
+
+## 九、摄像头画面获取（BLE Python 脚本）
+
+### 9.1 BLE 协议
+
+| 项目 | 值 |
+|------|---|
+| 设备名称 | `OMI Glass` |
+| Service UUID | `19B10000-E8F2-537E-4F6C-D104768A1214` |
+| 照片数据 characteristic | `19B10005`（订阅通知） |
+| 照片控制 characteristic | `19B10006`（写入触发） |
+| 触发连续拍照（5s间隔） | 写入 `0x05` |
+| 帧结束标记 | `0xFF 0xFF` |
+| 数据格式 | 分块 JPEG，每包前 2 字节为包序号（小端序） |
+
+### 9.2 安装依赖
+
+```bash
+conda run -n omi pip install bleak
+```
+
+### 9.3 运行捕获脚本
+
+```bash
+cd omiGlass
+conda run -n omi python capture.py
+```
+
+图片保存至 `omiGlass/captures/`，文件名格式：`photo_YYYYMMDD_HHMMSS.jpg`。
+
+### 9.4 常见问题
+
+**设备扫描不到：**
+- LED 常亮 = 设备已被其他设备连接。打开系统蓝牙设置断开连接，或按 RST 键重启板子
+- macOS 关闭再开启蓝牙可以强制断开现有连接
+- 确认板子已通电（LED 慢闪 = 正在广播，等待连接）
+
+**macOS 蓝牙权限：**
+- 首次运行时系统会弹出授权请求，需要允许终端访问蓝牙
+
+---
+
+## 十、LED 状态说明
+
+| LED 状态 | 含义 |
+|---------|------|
+| 慢闪（~1s） | 未连接，正在广播 |
+| 常亮 | BLE 已连接 |
+| 快闪（启动时） | 系统初始化中 |
+| 不亮 | 未通电或深度睡眠 |
